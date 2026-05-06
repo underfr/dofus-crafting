@@ -12,6 +12,7 @@ const DATA_DIR     = path.join(RESOURCES, 'data')
 const JOB_ICONS_DIR = path.join(__dirname, 'renderer', 'assets', 'jobs')
 const BUNDLE_PATH  = path.join(DATA_DIR, 'data.dcft')
 const QUEUE_PATH   = path.join(app.getPath('userData'), 'queue.json')
+const PRICES_PATH  = path.join(app.getPath('userData'), 'prices.json')
 
 let bundleData     = null   // { meta, iconMap }
 let iconServerPort = 0
@@ -144,5 +145,22 @@ ipcMain.handle('save-queue', (_, queue) => {
     fs.writeFileSync(QUEUE_PATH, JSON.stringify(queue), 'utf-8')
   } catch (e) {
     console.error('save-queue error:', e)
+  }
+})
+
+// ── IPC : prices persistence ────────────────────────────────────────────────
+ipcMain.handle('load-prices', () => {
+  try {
+    return JSON.parse(fs.readFileSync(PRICES_PATH, 'utf-8'))
+  } catch {
+    return {}
+  }
+})
+
+ipcMain.handle('save-prices', (_, prices) => {
+  try {
+    fs.writeFileSync(PRICES_PATH, JSON.stringify(prices), 'utf-8')
+  } catch (e) {
+    console.error('save-prices error:', e)
   }
 })

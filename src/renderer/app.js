@@ -6,7 +6,9 @@ let itemsExtra = {}
 let recipeByResultId = {}
 let jobs = []
 let craftQueue = []
+let prices = {}
 let pendingRecipe = null
+let pendingPriceItemId = null
 let iconBaseUrl = ''
 let activeJobId = ''
 
@@ -111,6 +113,15 @@ function showTooltip(e, recipe) {
   tooltip.querySelector('.tooltip-meta').textContent = metaParts.join(' · ')
   tooltip.querySelector('.tooltip-icon').src = iconUrl(item?.iconId ?? 0)
 
+  const priceEl = tooltip.querySelector('.tooltip-price')
+  const unitPrice = prices[recipe.resultId]
+  if (unitPrice) {
+    priceEl.innerHTML = `${formatKamas(unitPrice)} ${kamasSvg}`
+    priceEl.classList.remove('hidden')
+  } else {
+    priceEl.classList.add('hidden')
+  }
+
   const effectsList = $('tooltip-effects')
   const effectsSection = $('tooltip-effects-section')
   effectsList.innerHTML = ''
@@ -158,12 +169,28 @@ function hideTooltip() {
   $('item-tooltip').classList.add('hidden')
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+const kamasSvg = `<img class="kamas-icon" src="assets/ui/kamas.png" alt="kamas" />`
+
+function formatKamas(n) {
+  return Math.round(n).toLocaleString('fr-FR')
+}
+
 // ── Queue persistence ──────────────────────────────────────────────────────
 let _saveTimer = null
 function scheduleQueueSave() {
   clearTimeout(_saveTimer)
   _saveTimer = setTimeout(() => {
     window.api.saveQueue(craftQueue.map(e => ({ resultId: e.recipe.resultId, qty: e.qty })))
+  }, 500)
+}
+
+// ── Prices persistence ─────────────────────────────────────────────────────
+let _pricesTimer = null
+function schedulePricesSave() {
+  clearTimeout(_pricesTimer)
+  _pricesTimer = setTimeout(() => {
+    window.api.savePrices(prices)
   }, 500)
 }
 
@@ -207,6 +234,8 @@ async function init() {
     const recipe = recipeByResultId[resultId]
     if (recipe) craftQueue.push({ recipe, qty })
   }
+
+  prices = await window.api.loadPrices()
 
   await minWait
   $('loading').classList.add('hidden')
@@ -464,10 +493,13 @@ function computeShopping(autoSub) {
 
 function renderShoppingList() {
   shoppingList.innerHTML = ''
+  const totalEl = $('shopping-total')
+
   if (!craftQueue.length) {
     buyCount.textContent = 0
     buyCount.classList.add('zero')
     shoppingEmpty.classList.remove('hidden')
+    totalEl.classList.add('hidden')
     return
   }
   shoppingEmpty.classList.add('hidden')
@@ -475,16 +507,79 @@ function renderShoppingList() {
   buyCount.textContent = items.length
   buyCount.classList.toggle('zero', items.length === 0)
 
+  let total = 0
+  let pricedCount = 0
+
   for (const { itemId, name, qty, iconId, isCraftable } of items) {
+    const unitPrice = prices[itemId]
+    const lineTotal = unitPrice ? unitPrice * qty : null
+    if (lineTotal !== null) { total += lineTotal; pricedCount++ }
+
+    const priceHtml = lineTotal !== null
+      ? `<span class="shopping-price">${formatKamas(lineTotal)} ${kamasSvg}</span>`
+      : `<span class="shopping-price unset">—</span>`
+
     const li = document.createElement('li')
     li.className = 'shopping-entry' + (isCraftable ? ' is-craftable' : '')
+    li.dataset.itemId = itemId
+    li.dataset.name   = name
+    li.dataset.iconId = iconId
     li.innerHTML = `
       <img class="shop-icon" src="${iconUrl(iconId)}" alt="" />
       <span class="shopping-name">${name}${isCraftable ? '<small>craftable</small>' : ''}</span>
+      ${priceHtml}
       <span class="shopping-qty">${qty}</span>
     `
     shoppingList.appendChild(li)
   }
+
+  if (pricedCount > 0) {
+    const partial = pricedCount < items.length
+      ? ` <span class="shopping-total-partial">(${pricedCount}/${items.length} items)</span>` : ''
+    $('shopping-total-value').innerHTML = `${formatKamas(total)}${partial}`
+    totalEl.classList.remove('hidden')
+  } else {
+    totalEl.classList.add('hidden')
+  }
+}
+
+// ── Price modal ────────────────────────────────────────────────────────────
+function openPriceModal(itemId, name, iconId) {
+  pendingPriceItemId = itemId
+  $('price-modal-title').textContent = name
+  $('price-input').value = prices[itemId] ?? ''
+  $('price-item-preview').innerHTML = `
+    <img src="${iconUrl(iconId)}" alt="" />
+    <div>
+      <div class="qty-preview-name">${name}</div>
+      <div class="qty-preview-meta">${prices[itemId] ? formatKamas(prices[itemId]) + ' kamas / unité' : 'Prix non défini'}</div>
+    </div>
+  `
+  $('price-modal').classList.remove('hidden')
+  setTimeout(() => { $('price-input').focus(); $('price-input').select() }, 50)
+}
+
+function closePriceModal() {
+  $('price-modal').classList.add('hidden')
+  pendingPriceItemId = null
+}
+
+function confirmPrice() {
+  if (pendingPriceItemId === null) return
+  const val = parseInt($('price-input').value)
+  if (val > 0) prices[pendingPriceItemId] = val
+  else delete prices[pendingPriceItemId]
+  schedulePricesSave()
+  renderShoppingList()
+  closePriceModal()
+}
+
+function clearPrice() {
+  if (pendingPriceItemId === null) return
+  delete prices[pendingPriceItemId]
+  schedulePricesSave()
+  renderShoppingList()
+  closePriceModal()
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────
@@ -503,6 +598,20 @@ $('btn-clear-all').addEventListener('click', () => { craftQueue = []; renderCraf
   $('qty-modal').addEventListener('click', e => { if (e.target === $('qty-modal')) closeQtyModal() })
   document.querySelectorAll('.qty-preset').forEach(btn => {
     btn.addEventListener('click', () => { $('qty-input').value = btn.dataset.val })
+  })
+
+  // Price modal
+  $('price-confirm').addEventListener('click', confirmPrice)
+  $('price-cancel').addEventListener('click', closePriceModal)
+  $('price-clear').addEventListener('click', clearPrice)
+  $('price-modal').addEventListener('click', e => { if (e.target === $('price-modal')) closePriceModal() })
+  $('price-input').addEventListener('keydown', e => { if (e.key === 'Enter') confirmPrice(); if (e.key === 'Escape') closePriceModal() })
+
+  // Shopping list — clic pour définir le prix
+  shoppingList.addEventListener('click', e => {
+    const entry = e.target.closest('.shopping-entry')
+    if (!entry) return
+    openPriceModal(+entry.dataset.itemId, entry.dataset.name, +entry.dataset.iconId)
   })
 
   // Craft queue delegation
