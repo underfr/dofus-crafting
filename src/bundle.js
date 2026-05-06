@@ -1,7 +1,8 @@
 'use strict'
 /**
- * Lecteur du bundle data.dcft.
+ * Lecteur du bundle data.dcft (version 2 — multi-langue).
  * Format : magic DCFT + index sections + données zlib+XOR.
+ * Sections : meta_fr, meta_en, meta_es, meta_de, meta_pt, icons
  */
 
 const fs   = require('fs')
@@ -23,17 +24,15 @@ function unpack(data) {
 
 /**
  * @param {string} bundlePath
- * @returns {{ meta: object, iconMap: Map<number, Buffer> }}
+ * @returns {{ metas: Record<string, object>, iconMap: Map<number, Buffer> }}
  */
 function loadBundle(bundlePath) {
   const buf = fs.readFileSync(bundlePath)
 
   if (!buf.slice(0, 4).equals(MAGIC)) throw new Error('data.dcft: magic invalide')
 
-  const version    = buf.readUInt16LE(4)  // eslint-disable-line no-unused-vars
   const numSections = buf.readUInt16LE(6)
 
-  // Parse index
   const sections = {}
   let pos = 8
   for (let i = 0; i < numSections; i++) {
@@ -46,11 +45,16 @@ function loadBundle(bundlePath) {
     sections[name] = { offset, size }
   }
 
-  // ── Meta ──────────────────────────────────────────────────────────────────
-  const metaSec = sections['meta']
-  if (!metaSec) throw new Error('data.dcft: section "meta" manquante')
-  const metaRaw = unpack(buf.slice(metaSec.offset, metaSec.offset + metaSec.size))
-  const meta    = JSON.parse(metaRaw.toString('utf-8'))
+  // ── Meta sections (meta_fr, meta_en, …) ───────────────────────────────────
+  const metas = {}
+  for (const [name, sec] of Object.entries(sections)) {
+    if (!name.startsWith('meta_')) continue
+    const lang = name.slice(5)
+    const raw  = unpack(buf.slice(sec.offset, sec.offset + sec.size))
+    metas[lang] = JSON.parse(raw.toString('utf-8'))
+  }
+
+  if (Object.keys(metas).length === 0) throw new Error('data.dcft: aucune section meta_* trouvée')
 
   // ── Icons ──────────────────────────────────────────────────────────────────
   const iconMap  = new Map()
@@ -69,7 +73,7 @@ function loadBundle(bundlePath) {
     }
   }
 
-  return { meta, iconMap }
+  return { metas, iconMap }
 }
 
 module.exports = { loadBundle }

@@ -1,47 +1,49 @@
 # Dofus Craft
 
-Calculateur de recettes de craft pour **Dofus 3**. Application desktop Electron qui lit les assets Unity du jeu pour extraire items, recettes, effets et icônes, puis les regroupe dans un fichier binaire embarqué.
+A craft recipe calculator for **Dofus 3**. Desktop app built with Electron that reads the game's Unity assets to extract items, recipes, effects and icons, then bundles everything into a single embedded binary file.
+
+Available in **French, English, Spanish, German and Portuguese**.
 
 ---
 
 ## Stack
 
-| Couche | Technologie |
+| Layer | Technology |
 |---|---|
-| Application desktop | Electron 42 |
-| UI | Vanilla JS / HTML / CSS (sans framework) |
-| Extraction assets | Python 3 + UnityPy + Pillow |
-| Serveur d'icônes | Node.js `http` (port local aléatoire) |
-| Bundle de données | Format `.dcft` — zlib + XOR, servi en mémoire |
+| Desktop app | Electron 42 |
+| UI | Vanilla JS / HTML / CSS (no framework) |
+| Asset extraction | Python 3 + UnityPy + Pillow |
+| Icon server | Node.js `http` (random local port) |
+| Data bundle | `.dcft` format — zlib + XOR, served in memory |
 
 ---
 
-## Démarrage rapide
+## Quick start
 
 ```bash
-# 1. Installer les dépendances Node
+# 1. Install Node dependencies
 npm install
 
-# 2. Placer data/data.dcft (voir ci-dessous)
+# 2. Place data/data.dcft (see below)
 
-# 3. Lancer l'application
+# 3. Run the app
 npm start
 ```
 
 ---
 
-## Fichier de données — `data/data.dcft`
+## Data file — `data/data.dcft`
 
-Toutes les données du jeu (items, recettes, métiers, effets, ~11 000 icônes) sont regroupées dans un **fichier binaire unique** `data/data.dcft`.
+All game data (items, recipes, professions, effects, ~11,000 icons) is packed into a **single binary file** `data/data.dcft`.
 
-Ce fichier n'est **pas versionné** dans le dépôt (trop volumineux pour Git). Il doit être fourni séparément — via les releases GitHub ou généré manuellement.
+This file is **not versioned** in the repository (too large for Git). It must be provided separately — either via GitHub releases or generated manually.
 
-- Format propriétaire : magic `DCFT` + index de sections + données compressées (zlib niveau 9) puis brouillées (XOR 8 octets rotatif).
-- Les icônes sont chargées en mémoire au démarrage et servies via un serveur HTTP local.
+- Custom format: magic `DCFT` + section index + compressed (zlib level 9) and obfuscated (rotating 8-byte XOR) data.
+- Icons are loaded into memory at startup and served through a local HTTP server.
 
-### Générer le bundle manuellement
+### Generate the bundle manually
 
-Nécessite **Python 3.10+**, **UnityPy**, **Pillow** et le **client Dofus 3** installé.
+Requires **Python 3.10+**, **UnityPy**, **Pillow** and the **Dofus 3 client** installed.
 
 ```bash
 pip install UnityPy pillow
@@ -51,61 +53,64 @@ python extractor/extract_effects.py
 python extractor/bundle.py
 ```
 
-Le fichier `data/data.dcft` est alors prêt à l'emploi.
+The file `data/data.dcft` is then ready to use.
 
-### Chemins des assets Dofus
+### Dofus asset paths
 
-**Windows** (défaut) :
+**Windows** (default):
 ```
 %LOCALAPPDATA%\Ankama\Dofus-dofus3\Dofus_Data\StreamingAssets\
 ```
 
-**macOS** :
+**macOS**:
 ```
 ~/Library/Application Support/Ankama/Dofus-dofus3/Dofus_Data/StreamingAssets/
 ```
 
-Ces chemins sont configurables en haut de `extractor/extract.py` et `extractor/extract_effects.py`.
+These paths can be configured at the top of `extractor/extract.py` and `extractor/extract_effects.py`.
 
 ---
 
-## Persistance de la queue de craft
+## Craft queue persistence
 
-La liste de craft est sauvegardée automatiquement à chaque modification et restaurée au prochain démarrage.
+The craft queue is saved automatically on every change and restored on next startup.
 
-| OS | Emplacement |
+| OS | Location |
 |---|---|
 | Windows | `%APPDATA%\dofus-craft\queue.json` |
 | macOS | `~/Library/Application Support/dofus-craft/queue.json` |
 | Linux | `~/.config/dofus-craft/queue.json` |
 
+Kamas prices set on ingredients are also persisted in the same folder (`prices.json`).
+
 ---
 
-## Structure du projet
+## Project structure
 
 ```
 craft/
 ├── src/
-│   ├── main.js                  # Processus principal Electron (IPC, serveur icônes, queue)
-│   ├── preload.js               # Bridge contextIsolation → renderer
-│   ├── bundle.js                # Lecteur du format .dcft
+│   ├── main.js                  # Electron main process (IPC, icon server, queue & prices)
+│   ├── preload.js               # contextIsolation bridge → renderer
+│   ├── bundle.js                # .dcft format reader
 │   └── renderer/
 │       ├── index.html
-│       ├── app.js               # Logique UI (recherche, queue, shopping list, tooltip)
+│       ├── app.js               # UI logic (search, queue, shopping list, tooltip, prices)
+│       ├── i18n.js              # Static UI translations (fr, en, es, de, pt)
 │       ├── style.css
 │       └── assets/
-│           ├── jobs/            # Icônes métiers (gitignorées, extraites localement)
+│           ├── jobs/            # Profession icons (gitignored, extracted locally)
 │           └── ui/
-│               ├── stats/       # Icônes de stats pour les tooltips
-│               ├── illus/       # Logo et fond d'écran
-│               └── npc/         # Illustrations NPC (CSS)
+│               ├── stats/       # Stat icons for tooltips
+│               ├── illus/       # Logo and background
+│               └── npc/         # NPC illustrations (CSS)
 ├── extractor/
-│   ├── extract.py               # Items, recettes, métiers, icônes → data/*.json + data/icons/
-│   ├── extract_effects.py       # Effets et descriptions i18n → data/items_extra.json
-│   └── bundle.py                # Repackage tout en data/data.dcft
+│   ├── extract.py               # Items, recipes, professions, icons → data/*.json + data/icons/
+│   ├── extract_effects.py       # Effects and i18n descriptions → data/items_extra.json
+│   └── bundle.py                # Repacks everything into data/data.dcft
 ├── data/
-│   └── data.dcft                # Bundle binaire (gitignorés — à fournir séparément)
-├── build/                       # Icônes app pour electron-builder
+│   └── data.dcft                # Binary bundle (gitignored — must be provided separately)
+├── build/                       # App icons for electron-builder
 │   ├── icon.ico
 │   ├── icon.icns
 │   └── icon.png
@@ -116,20 +121,20 @@ craft/
 
 ---
 
-## Build distributable
+## Distributable build
 
-### Prérequis
+### Prerequisites
 
-- `data/data.dcft` présent dans le dossier `data/`
-- Dossier `build/` avec `icon.ico` (Windows), `icon.icns` (macOS), `icon.png` (Linux, 256×256 min)
+- `data/data.dcft` present in the `data/` folder
+- `build/` folder with `icon.ico` (Windows), `icon.icns` (macOS), `icon.png` (Linux, 256×256 min)
 
-### Générer les installeurs
+### Generate installers
 
 ```bash
 npm run build:win    # → dist/  (.exe NSIS + portable)
 npm run build:mac    # → dist/  (.dmg x64 + arm64)
 npm run build:linux  # → dist/  (.AppImage + .deb)
-npm run build        # Toutes les plateformes
+npm run build        # All platforms
 ```
 
-`data/data.dcft` est automatiquement embarqué dans le build via `extraResources`. Les utilisateurs finaux n'ont besoin ni de Python ni du client Dofus.
+`data/data.dcft` is automatically bundled into the build via `extraResources`. End users need neither Python nor the Dofus client.
