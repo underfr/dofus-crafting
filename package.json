@@ -1,6 +1,6 @@
 {
   "name": "dofus-craft",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Calculateur de recettes de craft pour Dofus 3",
   "main": "src/main.js",
   "scripts": {
