@@ -32,6 +32,28 @@
     </div>
 
 
+    <div id="price-modal" class="overlay hidden">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <img src="assets/ui/kamas.png" alt="kamas" style="width:20px;height:20px;" />
+          <h3 id="price-modal-title">Prix unitaire</h3>
+        </div>
+        <div id="price-item-preview" class="qty-preview"></div>
+        <div class="price-input-wrap">
+          <input id="price-input" type="number" min="0" step="1" placeholder="0" />
+          <img class="kamas-icon-lg" src="assets/ui/kamas.png" alt="kamas" />
+        </div>
+        <div class="modal-actions">
+          <button id="price-clear" class="btn-ghost">Effacer</button>
+          <button id="price-cancel" class="btn-ghost">Annuler</button>
+          <button id="price-confirm" class="btn-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Confirmer
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div id="qty-modal" class="overlay hidden">
       <div class="modal modal-sm">
         <div class="modal-header">
@@ -124,6 +146,13 @@
             </label>
           </div>
           <ul id="shopping-list" class="shopping-list"></ul>
+          <div id="shopping-total" class="shopping-total hidden">
+            <span class="shopping-total-label">Coût total estimé</span>
+            <span class="shopping-total-amount">
+              <span id="shopping-total-value"></span>
+              <img class="kamas-icon" src="assets/ui/kamas.png" alt="kamas" />
+            </span>
+          </div>
           <p id="shopping-empty" class="empty-state">
             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".3"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
             <span>La liste apparaîtra ici</span>
@@ -140,6 +169,7 @@
       <div class="tooltip-header-text">
         <div class="tooltip-name"></div>
         <div class="tooltip-meta"></div>
+        <div class="tooltip-price hidden"></div>
       </div>
       <img class="tooltip-icon" src="" alt="" />
     </div>
