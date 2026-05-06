@@ -32,6 +32,7 @@ const TRANSLATIONS = {
     'price.notDefined':     'Prix non défini',
     'price.perUnit':        'kamas / unité',
     'effects.title':        'Effets',
+    'weapon.title':         "Effets de l'arme",
   },
   en: {
     'brand.sub':            'Recipe Calculator',
@@ -66,6 +67,7 @@ const TRANSLATIONS = {
     'price.notDefined':     'Price not set',
     'price.perUnit':        'kamas / unit',
     'effects.title':        'Effects',
+    'weapon.title':         'Weapon effects',
   },
   es: {
     'brand.sub':            'Calculadora de recetas',
@@ -100,6 +102,7 @@ const TRANSLATIONS = {
     'price.notDefined':     'Precio no definido',
     'price.perUnit':        'kamas / unidad',
     'effects.title':        'Efectos',
+    'weapon.title':         'Efectos del arma',
   },
   de: {
     'brand.sub':            'Rezeptrechner',
@@ -134,6 +137,7 @@ const TRANSLATIONS = {
     'price.notDefined':     'Preis nicht festgelegt',
     'price.perUnit':        'Kamas / Stück',
     'effects.title':        'Effekte',
+    'weapon.title':         'Waffeneffekte',
   },
   pt: {
     'brand.sub':            'Calculadora de receitas',
@@ -168,6 +172,7 @@ const TRANSLATIONS = {
     'price.notDefined':     'Preço não definido',
     'price.perUnit':        'kamas / unidade',
     'effects.title':        'Efeitos',
+    'weapon.title':         'Efeitos da arma',
   },
 }
 
