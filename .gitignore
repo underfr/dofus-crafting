@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/icons/
+data/*.json
+src/renderer/assets/ui/
+src/renderer/assets/jobs/
+extractor/__pycache__/
+*.pyc
+.claude/
