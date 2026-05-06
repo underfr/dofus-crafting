@@ -16,62 +16,68 @@ Calculateur de recettes de craft pour **Dofus 3**. Application desktop Electron 
 
 ---
 
-## Prérequis
-
-- [Node.js 18+](https://nodejs.org/)
-- [Python 3.10+](https://www.python.org/) — uniquement pour (re)générer les données
-- **Dofus 3** installé sur la machine — uniquement pour (re)générer les données
-- Bibliothèques Python :
-  ```bash
-  pip install UnityPy pillow
-  ```
-
----
-
 ## Démarrage rapide
 
 ```bash
 # 1. Installer les dépendances Node
 npm install
 
-# 2. Lancer l'application (si data/data.dcft est présent)
+# 2. Placer data/data.dcft (voir ci-dessous)
+
+# 3. Lancer l'application
 npm start
 ```
-
-Si `data/data.dcft` est absent, l'UI affiche un bouton **Mettre à jour** qui lance l'extraction complète (voir ci-dessous).
 
 ---
 
 ## Fichier de données — `data/data.dcft`
 
-Toutes les données du jeu (items, recettes, métiers, effets, icônes) sont regroupées dans un **fichier binaire unique** `data/data.dcft`.
+Toutes les données du jeu (items, recettes, métiers, effets, ~11 000 icônes) sont regroupées dans un **fichier binaire unique** `data/data.dcft`.
 
-- Distribué directement dans le dépôt / le build — les utilisateurs finaux n'ont **pas** besoin de Python ni du client Dofus.
+Ce fichier n'est **pas versionné** dans le dépôt (trop volumineux pour Git). Il doit être fourni séparément — via les releases GitHub ou généré manuellement.
+
 - Format propriétaire : magic `DCFT` + index de sections + données compressées (zlib niveau 9) puis brouillées (XOR 8 octets rotatif).
-- Les icônes (~11 000 PNG) sont chargées en mémoire au démarrage et servies via un serveur HTTP local.
+- Les icônes sont chargées en mémoire au démarrage et servies via un serveur HTTP local.
 
-### Régénérer le bundle après un patch Dofus
+### Générer le bundle manuellement
+
+Nécessite **Python 3.10+**, **UnityPy**, **Pillow** et le **client Dofus 3** installé.
 
 ```bash
-# Extraction depuis les assets Unity du client Dofus
+pip install UnityPy pillow
+
 python extractor/extract.py
 python extractor/extract_effects.py
-
-# Repackage en data.dcft
 python extractor/bundle.py
 ```
 
-Ou cliquer sur **Mettre à jour** dans l'interface (enchaîne les trois scripts et recharge les données à chaud).
+Le fichier `data/data.dcft` est alors prêt à l'emploi.
+
+### Chemins des assets Dofus
+
+**Windows** (défaut) :
+```
+%LOCALAPPDATA%\Ankama\Dofus-dofus3\Dofus_Data\StreamingAssets\
+```
+
+**macOS** :
+```
+~/Library/Application Support/Ankama/Dofus-dofus3/Dofus_Data/StreamingAssets/
+```
+
+Ces chemins sont configurables en haut de `extractor/extract.py` et `extractor/extract_effects.py`.
 
 ---
 
 ## Persistance de la queue de craft
 
-La liste de craft est sauvegardée automatiquement dans le dossier utilisateur Electron (`userData/queue.json`) à chaque modification. Elle est restaurée au prochain démarrage.
+La liste de craft est sauvegardée automatiquement à chaque modification et restaurée au prochain démarrage.
 
-- **Windows** : `%APPDATA%\dofus-craft\queue.json`
-- **macOS** : `~/Library/Application Support/dofus-craft/queue.json`
-- **Linux** : `~/.config/dofus-craft/queue.json`
+| OS | Emplacement |
+|---|---|
+| Windows | `%APPDATA%\dofus-craft\queue.json` |
+| macOS | `~/Library/Application Support/dofus-craft/queue.json` |
+| Linux | `~/.config/dofus-craft/queue.json` |
 
 ---
 
@@ -88,7 +94,7 @@ craft/
 │       ├── app.js               # Logique UI (recherche, queue, shopping list, tooltip)
 │       ├── style.css
 │       └── assets/
-│           ├── jobs/            # Icônes métiers (gitignorés, extraits localement)
+│           ├── jobs/            # Icônes métiers (gitignorées, extraites localement)
 │           └── ui/
 │               ├── stats/       # Icônes de stats pour les tooltips
 │               ├── illus/       # Logo et fond d'écran
@@ -98,7 +104,7 @@ craft/
 │   ├── extract_effects.py       # Effets et descriptions i18n → data/items_extra.json
 │   └── bundle.py                # Repackage tout en data/data.dcft
 ├── data/
-│   └── data.dcft                # Bundle binaire (versionné, fourni dans le dépôt)
+│   └── data.dcft                # Bundle binaire (gitignorés — à fournir séparément)
 ├── build/                       # Icônes app pour electron-builder
 │   ├── icon.ico
 │   ├── icon.icns
@@ -110,28 +116,12 @@ craft/
 
 ---
 
-## Chemins des assets Dofus (extraction uniquement)
-
-**Windows** (défaut) :
-```
-%LOCALAPPDATA%\Ankama\Dofus-dofus3\Dofus_Data\StreamingAssets\
-```
-
-**macOS** :
-```
-~/Library/Application Support/Ankama/Dofus-dofus3/Dofus_Data/StreamingAssets/
-```
-
-Ces chemins sont configurables en haut de `extractor/extract.py` et `extractor/extract_effects.py`.
-
----
-
 ## Build distributable
 
 ### Prérequis
 
+- `data/data.dcft` présent dans le dossier `data/`
 - Dossier `build/` avec `icon.ico` (Windows), `icon.icns` (macOS), `icon.png` (Linux, 256×256 min)
-- `data/data.dcft` généré
 
 ### Générer les installeurs
 
@@ -142,4 +132,4 @@ npm run build:linux  # → dist/  (.AppImage + .deb)
 npm run build        # Toutes les plateformes
 ```
 
-Le fichier `data/data.dcft` est automatiquement embarqué dans le build via `extraResources`. Les utilisateurs finaux n'ont besoin ni de Python ni du client Dofus.
+`data/data.dcft` est automatiquement embarqué dans le build via `extraResources`. Les utilisateurs finaux n'ont besoin ni de Python ni du client Dofus.
