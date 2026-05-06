@@ -1,5 +1,3 @@
-'use strict'
-
 const TRANSLATIONS = {
   fr: {
     'brand.sub':            'Calculateur de recettes',
@@ -175,17 +173,17 @@ const TRANSLATIONS = {
 
 let _lang = localStorage.getItem('lang') || 'fr'
 
-function t(key, vars = {}) {
+export function t(key, vars = {}) {
   const dict = TRANSLATIONS[_lang] || TRANSLATIONS['fr']
   const str  = dict[key] ?? TRANSLATIONS['fr'][key] ?? key
   return str.replace(/\{(\w+)\}/g, (_, k) => vars[k] !== undefined ? vars[k] : '')
 }
 
-function setI18nLang(lang) {
+export function setI18nLang(lang) {
   _lang = lang
 }
 
-function applyI18n() {
+export function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     el.textContent = t(el.dataset.i18n)
   })
@@ -194,6 +192,6 @@ function applyI18n() {
   })
 }
 
-function getI18nLang() {
+export function getI18nLang() {
   return _lang
 }
