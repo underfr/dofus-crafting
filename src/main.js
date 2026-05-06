@@ -108,14 +108,20 @@ app.on('window-all-closed', () => {
 // ── IPC : icon port ─────────────────────────────────────────────────────────
 ipcMain.handle('get-icon-port', () => iconServerPort)
 
+// ── IPC : available languages ────────────────────────────────────────────────
+ipcMain.handle('get-languages', () => {
+  if (bundleData) return Object.keys(bundleData.metas)
+  return ['fr']
+})
+
 // ── IPC : load data ─────────────────────────────────────────────────────────
-ipcMain.handle('load-data', () => {
+ipcMain.handle('load-data', (_, lang = 'fr') => {
   // From bundle
   if (bundleData) {
-    return bundleData.meta
+    return bundleData.metas[lang] || bundleData.metas['fr'] || Object.values(bundleData.metas)[0]
   }
 
-  // Fallback: read JSON files individually (mode dev sans bundle)
+  // Fallback: read JSON files individually (dev mode, FR only)
   const result = {}
   for (const name of ['items', 'recipes', 'jobs', 'item_types']) {
     const filePath = path.join(DATA_DIR, `${name}.json`)

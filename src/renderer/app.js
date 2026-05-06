@@ -11,6 +11,7 @@ let pendingRecipe = null
 let pendingPriceItemId = null
 let iconBaseUrl = ''
 let activeJobId = ''
+// currentLang is managed by i18n.js (getI18nLang / setI18nLang)
 
 // ── DOM ────────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id)
@@ -108,7 +109,7 @@ function showTooltip(e, recipe) {
   const extra = itemsExtra[recipe.resultId] || {}
 
   tooltip.querySelector('.tooltip-name').textContent = recipe.resultName
-  const metaParts = [`Niveau ${recipe.resultLevel}`]
+  const metaParts = [t('item.levelFull', { n: recipe.resultLevel })]
   if (recipe._jobName) metaParts.push(recipe._jobName)
   tooltip.querySelector('.tooltip-meta').textContent = metaParts.join(' · ')
   tooltip.querySelector('.tooltip-icon').src = iconUrl(item?.iconId ?? 0)
@@ -194,6 +195,62 @@ function schedulePricesSave() {
   }, 500)
 }
 
+// ── Language ───────────────────────────────────────────────────────────────
+function buildLangSelector(availableLangs) {
+  const container = $('lang-selector')
+  container.innerHTML = ''
+  for (const lang of availableLangs) {
+    const btn = document.createElement('button')
+    btn.className = 'lang-btn' + (lang === getI18nLang() ? ' active' : '')
+    btn.textContent = lang.toUpperCase()
+    btn.dataset.lang = lang
+    btn.addEventListener('click', () => setLanguage(lang))
+    container.appendChild(btn)
+  }
+}
+
+async function setLanguage(lang) {
+  if (lang === getI18nLang()) return
+  setI18nLang(lang)
+  localStorage.setItem('lang', lang)
+
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === lang)
+  })
+  applyI18n()
+
+  const data = await window.api.loadData(lang)
+  if (data.error) return
+
+  itemById = {}
+  recipeByResultId = {}
+  for (const item of data.items)   itemById[item.id] = item
+  for (const r    of data.recipes) recipeByResultId[r.resultId] = r
+  itemsExtra = data.items_extra || {}
+
+  const jobById = {}
+  for (const job of data.jobs) jobById[job.id] = job
+  for (const r of data.recipes) r._jobName = jobById[r.jobId]?.name ?? ''
+
+  // Re-map queue to updated recipe objects
+  craftQueue = craftQueue.map(({ recipe, qty }) => {
+    const r = recipeByResultId[recipe.resultId]
+    return r ? { recipe: r, qty } : null
+  }).filter(Boolean)
+
+  // Rebuild job filter with new lang names
+  $('job-filter-bar').innerHTML = ''
+  jobs = data.jobs
+    .filter(j => j.name && Object.values(recipeByResultId).some(r => r.jobId === j.id))
+    .map(j => j)
+  activeJobId = ''
+  buildJobFilter()
+
+  renderSearch()
+  renderCraftQueue()
+  renderShoppingList()
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function init() {
   $('loading-msg').textContent = 'Chargement des données…'
@@ -202,7 +259,11 @@ async function init() {
   const port = await window.api.getIconPort()
   iconBaseUrl = `http://127.0.0.1:${port}`
 
-  const data = await window.api.loadData()
+  const availableLangs = await window.api.getLanguages()
+  const currentLang = getI18nLang()
+  if (!availableLangs.includes(currentLang)) setI18nLang(availableLangs[0] || 'fr')
+
+  const data = await window.api.loadData(getI18nLang())
   if (data.error) {
     $('loading-msg').textContent = data.error
     return
@@ -223,11 +284,13 @@ async function init() {
 
   jobs = data.jobs
     .filter(j => j.name && (recipeCountByJob[j.id] || 0) > 0)
-    .map(j => j.id === 1 ? { ...j, name: 'Divers' } : j)
+    .map(j => j)
 
   for (const r of data.recipes) r._jobName = jobById[r.jobId]?.name ?? ''
 
   buildJobFilter()
+  buildLangSelector(availableLangs)
+  applyI18n()
 
   const saved = await window.api.loadQueue()
   for (const { resultId, qty } of saved) {
@@ -252,12 +315,12 @@ async function init() {
 const chevronSvg = `<svg class="job-select-chevron" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`
 
 function buildJobFilter() {
-  const allJobs = [{ id: '', name: 'Tous les métiers', iconId: -1 }, ...jobs]
+  const allJobs = [{ id: '', name: t('jobs.all'), iconId: -1 }, ...jobs]
 
   const trigger = document.createElement('button')
   trigger.className = 'job-select-trigger'
   trigger.id = 'job-select-trigger'
-  trigger.innerHTML = `<span class="job-select-icon"></span><span class="job-select-label">Tous les métiers</span>${chevronSvg}`
+  trigger.innerHTML = `<span class="job-select-icon"></span><span class="job-select-label">${t('jobs.all')}</span>${chevronSvg}`
 
   const dropdown = document.createElement('div')
   dropdown.className = 'job-select-dropdown hidden'
@@ -271,8 +334,9 @@ function buildJobFilter() {
     const opt = document.createElement('div')
     opt.className = 'job-option' + (job.id === '' ? ' active' : '')
     opt.dataset.jobId = job.id
-    opt.innerHTML = `${iconHtml}<span>${job.name}</span>`
-    opt.addEventListener('click', () => setJobFilter(job.id, job.name, iconId))
+    const label = job.id === '' ? t('jobs.all') : job.name
+    opt.innerHTML = `${iconHtml}<span>${label}</span>`
+    opt.addEventListener('click', () => setJobFilter(job.id, label, iconId))
     dropdown.appendChild(opt)
   }
 
@@ -298,7 +362,7 @@ function setJobFilter(jobId, jobName, iconId) {
   const iconHtml = iconId > 0
     ? `<img src="${jobIconUrl(iconId)}" alt="" />`
     : `<span class="job-select-icon"></span>`
-  trigger.innerHTML = `${iconHtml}<span class="job-select-label">${jobName ?? 'Tous les métiers'}</span>${chevronSvg}`
+  trigger.innerHTML = `${iconHtml}<span class="job-select-label">${jobName ?? t('jobs.all')}</span>${chevronSvg}`
 
   $('job-select-dropdown').querySelectorAll('.job-option').forEach(opt => {
     opt.classList.toggle('active', String(opt.dataset.jobId) === activeJobId)
@@ -327,11 +391,11 @@ function renderSearch() {
 
   const total = Object.keys(recipeByResultId).length
   resultMeta.textContent = recipes.length === total
-    ? `${total} recettes`
-    : `${recipes.length} résultat${recipes.length > 1 ? 's' : ''} sur ${total}`
+    ? t('search.total', { n: total })
+    : t('search.results', { n: recipes.length, s: recipes.length > 1 ? 's' : '', total })
 
   if (recipes.length === 0) {
-    searchResults.innerHTML = `<li class="empty-state"><span>Aucun résultat pour « ${q} »</span></li>`
+    searchResults.innerHTML = `<li class="empty-state"><span>${t('search.noResults', { q })}</span></li>`
     return
   }
 
@@ -351,10 +415,10 @@ function renderSearch() {
             ${recipe._jobName}
           </span>
           <span>·</span>` : ''}
-          <span>${recipe.ingredientIds.length} ingrédient${recipe.ingredientIds.length > 1 ? 's' : ''}</span>
+          <span>${t('item.ingredients', { n: recipe.ingredientIds.length, s: recipe.ingredientIds.length > 1 ? 's' : '' })}</span>
         </div>
       </div>
-      <span class="item-level">Nv ${recipe.resultLevel}</span>
+      <span class="item-level">${t('item.level', { n: recipe.resultLevel })}</span>
     `
     li.addEventListener('click', () => openQtyModal(recipe))
     li.addEventListener('mouseenter', (e) => showTooltip(e, recipe))
@@ -366,7 +430,7 @@ function renderSearch() {
   if (recipes.length > limit) {
     const li = document.createElement('li')
     li.className = 'empty-state'
-    li.innerHTML = `<span>+${recipes.length - limit} résultats — affinez la recherche</span>`
+    li.innerHTML = `<span>${t('search.more', { n: recipes.length - limit })}</span>`
     searchResults.appendChild(li)
   }
 }
@@ -383,7 +447,7 @@ function openQtyModal(recipe) {
     <img src="${iconUrl(item?.iconId ?? 0)}" alt="" />
     <div>
       <div class="qty-preview-name">${recipe.resultName}</div>
-      <div class="qty-preview-meta">${recipe._jobName} · Niveau ${recipe.resultLevel}</div>
+      <div class="qty-preview-meta">${recipe._jobName} · ${t('item.levelFull', { n: recipe.resultLevel })}</div>
     </div>
   `
 
@@ -526,7 +590,7 @@ function renderShoppingList() {
     li.dataset.iconId = iconId
     li.innerHTML = `
       <img class="shop-icon" src="${iconUrl(iconId)}" alt="" />
-      <span class="shopping-name">${name}${isCraftable ? '<small>craftable</small>' : ''}</span>
+      <span class="shopping-name">${name}${isCraftable ? `<small>${t('item.craftable')}</small>` : ''}</span>
       ${priceHtml}
       <span class="shopping-qty">${qty}</span>
     `
@@ -535,7 +599,7 @@ function renderShoppingList() {
 
   if (pricedCount > 0) {
     const partial = pricedCount < items.length
-      ? ` <span class="shopping-total-partial">(${pricedCount}/${items.length} items)</span>` : ''
+      ? ` <span class="shopping-total-partial">${t('shopping.partial', { n: pricedCount, total: items.length })}</span>` : ''
     $('shopping-total-value').innerHTML = `${formatKamas(total)}${partial}`
     totalEl.classList.remove('hidden')
   } else {
@@ -552,7 +616,7 @@ function openPriceModal(itemId, name, iconId) {
     <img src="${iconUrl(iconId)}" alt="" />
     <div>
       <div class="qty-preview-name">${name}</div>
-      <div class="qty-preview-meta">${prices[itemId] ? formatKamas(prices[itemId]) + ' kamas / unité' : 'Prix non défini'}</div>
+      <div class="qty-preview-meta">${prices[itemId] ? formatKamas(prices[itemId]) + ' ' + t('price.perUnit') : t('price.notDefined')}</div>
     </div>
   `
   $('price-modal').classList.remove('hidden')
