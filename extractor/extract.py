@@ -6,6 +6,7 @@ import sys
 import os
 import json
 import struct
+import threading
 
 import UnityPy
 import UnityPy.config
@@ -75,15 +76,39 @@ def build_i18n_index(path):
     return index, get_text
 
 
-def read_mb(path, name):
-    env = UnityPy.load(path)
-    for obj in env.objects:
-        if obj.type.name == "MonoBehaviour":
-            data = obj.read()
-            if data.m_Name == name:
-                return data
-    raise RuntimeError(f"MonoBehaviour '{name}' not found in {path}")
+class AttrDict:
 
+    def __init__(self, d):
+        if not isinstance(d, dict):
+            raise TypeError(f"Expected dict, got {type(d)}")
+        for k, v in d.items():
+            setattr(self, k, AttrDict._wrap(v))
+
+    @staticmethod
+    def _wrap(v):
+        if isinstance(v, dict):
+            return AttrDict(v)
+        if isinstance(v, list):
+            return [AttrDict._wrap(i) for i in v]
+        return v
+
+
+def read_mb(path, name):
+    log(f"    [read_mb] Chargement de {os.path.basename(path)}...")
+    env = UnityPy.load(path)
+    log(f"    [read_mb] Chargé. {len(env.objects)} objets. Recherche '{name}'...")
+    for i, obj in enumerate(env.objects):
+        if obj.type.name != "MonoBehaviour":
+            continue
+        try:
+            tree = obj.read_typetree()
+            if tree.get("m_Name") == name:
+                log(f"    [read_mb] Trouvé à #{i} via typetree !")
+                return AttrDict(tree)
+        except Exception as e:
+            log(f"    [read_mb] Objet #{i} erreur: {e}, skip")
+            continue
+    raise RuntimeError(f"MonoBehaviour '{name}' not found in {path}")
 
 def extract_jobs(i18n_index, get_text):
     path = os.path.join(GAME_DATA, "data_assets_jobsdataroot.asset.bundle")
@@ -138,8 +163,20 @@ def extract_items(i18n_index, get_text):
     mb = read_mb(path, "ItemsDataRoot")
     items = []
     skipped = 0
-    for ref in mb.references.RefIds:
-        d = ref.data
+    total_refs = len(mb.references.RefIds)
+    log(f"    {total_refs} refs trouvés dans ItemsDataRoot")  # ← ajoute ça
+
+    for i, ref in enumerate(mb.references.RefIds):
+        if i % 500 == 0:
+            log(f"    ... traitement ref {i}/{total_refs}")  # ← progress log
+
+        try:
+            d = ref.data  # ← c'est souvent ici que ça bloque
+        except Exception as e:
+            log(f"    ERREUR ref {i}: {e}")  # ← affiche l'erreur réelle
+            skipped += 1
+            continue
+
         if d is None or not hasattr(d, "id"):
             skipped += 1
             continue
@@ -153,8 +190,11 @@ def extract_items(i18n_index, get_text):
                 "price": float(d.price) if hasattr(d, "price") else 0,
                 "realWeight": d.realWeight if hasattr(d, "realWeight") else 0,
             })
-        except Exception:
+        except Exception as e:
+            log(f"    ERREUR item {i}: {e}")  # ← affiche l'erreur réelle
             skipped += 1
+
+    log(f"    {len(items)} items extraits, {skipped} skippés")
     return items
 
 

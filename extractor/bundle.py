@@ -5,6 +5,9 @@ Sections : meta_fr, meta_en, meta_es, meta_de, meta_pt, icons
 """
 import json, zlib, struct, os, sys
 sys.path.insert(0, os.path.dirname(__file__))
+import UnityPy
+import UnityPy.config
+UnityPy.config.FALLBACK_UNITY_VERSION = "6000.3.3f1"
 
 from extract import (
     build_i18n_index, get_i18n_path, extract_for_lang,

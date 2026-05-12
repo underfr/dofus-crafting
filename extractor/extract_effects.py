@@ -1,138 +1,293 @@
 """
-Extracts item descriptions and effects (with min/max rolls) from Dofus 3 bundles.
+Extracts items, recipes, and jobs from Dofus 3 Unity asset bundles.
+Outputs JSON files to the data/ directory.
 """
-import sys, os, json, struct, re
-sys.path.insert(0, os.path.dirname(__file__))
-from extract import build_i18n_index, get_i18n_path, log, OUT_DIR, GAME_DATA
+import sys
+import os
+import json
+import struct
+import threading
 
-import UnityPy, UnityPy.config
+import UnityPy
+import UnityPy.config
+
 UnityPy.config.FALLBACK_UNITY_VERSION = "6000.3.3f1"
+
+from PIL import Image
+
+GAME_DATA = r"C:\Users\Shadow\AppData\Local\Ankama\Dofus-dofus3\Dofus_Data\StreamingAssets\Content\Data"
+I18N_DIR  = r"C:\Users\Shadow\AppData\Local\Ankama\Dofus-dofus3\Dofus_Data\StreamingAssets\Content\I18n"
+ICON_BUNDLE = r"C:\Users\Shadow\AppData\Local\Ankama\Dofus-dofus3\Dofus_Data\StreamingAssets\Content\Picto\Items\item_assets_2x.bundle"
+OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+
+LANGUAGES = ['fr', 'en', 'es', 'de', 'pt']
+
+
+def get_i18n_path(lang):
+    return os.path.join(I18N_DIR, f'{lang}.bin')
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def _read_7bit_int(data, offset):
+    """C# BinaryWriter 7-bit variable-length encoded int."""
+    result = 0
+    shift = 0
+    while True:
+        b = data[offset]
+        offset += 1
+        result |= (b & 0x7F) << shift
+        shift += 7
+        if not (b & 0x80):
+            break
+    return result, offset
+
+
+def build_i18n_index(path):
+    log(f"Loading I18n index from {os.path.basename(path)}...")
+    with open(path, "rb") as f:
+        data = f.read()
+
+    INDEX_START = 7
+    ENTRY_SIZE = 8
+    first_offset = struct.unpack_from("<I", data, INDEX_START + 4)[0]
+
+    index = {}
+    for i in range(0, first_offset - INDEX_START, ENTRY_SIZE):
+        pos = INDEX_START + i
+        if pos + 8 > first_offset:
+            break
+        eid = struct.unpack_from("<I", data, pos)[0]
+        eoff = struct.unpack_from("<I", data, pos + 4)[0]
+        index[eid] = eoff
+
+    def get_text(offset):
+        if offset >= len(data):
+            return ""
+        try:
+            length, text_start = _read_7bit_int(data, offset)
+            return data[text_start:text_start + length].decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    log(f"  {len(index)} I18n entries loaded")
+    return index, get_text
+
+
+class AttrDict:
+
+    def __init__(self, d):
+        if not isinstance(d, dict):
+            raise TypeError(f"Expected dict, got {type(d)}")
+        for k, v in d.items():
+            setattr(self, k, AttrDict._wrap(v))
+
+    @staticmethod
+    def _wrap(v):
+        if isinstance(v, dict):
+            return AttrDict(v)
+        if isinstance(v, list):
+            return [AttrDict._wrap(i) for i in v]
+        return v
 
 
 def read_mb(path, name):
+    log(f"    [read_mb] Chargement de {os.path.basename(path)}...")
     env = UnityPy.load(path)
-    for obj in env.objects:
-        if obj.type.name == "MonoBehaviour":
-            data = obj.read()
-            if data.m_Name == name:
-                return data, env
+    log(f"    [read_mb] Chargé. {len(env.objects)} objets. Recherche '{name}'...")
+    for i, obj in enumerate(env.objects):
+        if obj.type.name != "MonoBehaviour":
+            continue
+        try:
+            tree = obj.read_typetree()
+            if tree.get("m_Name") == name:
+                log(f"    [read_mb] Trouvé à #{i} via typetree !")
+                return AttrDict(tree)
+        except Exception as e:
+            log(f"    [read_mb] Objet #{i} erreur: {e}, skip")
+            continue
     raise RuntimeError(f"MonoBehaviour '{name}' not found in {path}")
 
-
-def extract_effects_for_lang(i18n_index, get_text):
-    """Extract items_extra for a given language (i18n already loaded)."""
-
-    # ── Effect definitions ───────────────────────────────────────────────────
-    mb, _ = read_mb(
-        os.path.join(GAME_DATA, "data_assets_effectsdataroot.asset.bundle"),
-        "EffectsDataRoot"
-    )
-    effect_defs = {}
+def extract_jobs(i18n_index, get_text):
+    path = os.path.join(GAME_DATA, "data_assets_jobsdataroot.asset.bundle")
+    mb = read_mb(path, "JobsDataRoot")
+    jobs = []
     for ref in mb.references.RefIds:
         d = ref.data
-        if d is None or not hasattr(d, "id"):
-            continue
-        desc_id = int(d.descriptionId) if isinstance(d.descriptionId, str) else d.descriptionId
-        theo_id_raw = getattr(d, "theoreticalDescriptionId", "0")
-        try:
-            theo_id = int(theo_id_raw)
-        except Exception:
-            theo_id = 0
-
-        effect_defs[d.id] = {
+        jobs.append({
             "id": d.id,
-            "description": get_text(i18n_index.get(desc_id, 0)) if desc_id else "",
-            "theoreticalDescription": get_text(i18n_index.get(theo_id, 0)) if theo_id else "",
-            "showInTooltip": bool(d.showInTooltip),
-            "useDice": bool(d.useDice),
-            "isInPercent": bool(getattr(d, "isInPercent", 0)),
-            "characteristic": d.characteristic,
-        }
+            "name": get_text(i18n_index.get(d.nameId, 0)),
+            "iconId": d.iconId,
+        })
+    return jobs
 
-    # ── Items ────────────────────────────────────────────────────────────────
-    mb2, _ = read_mb(
-        os.path.join(GAME_DATA, "data_assets_itemsdataroot.asset.bundle"),
-        "ItemsDataRoot"
-    )
-    rid_map = {ref.rid: ref for ref in mb2.references.RefIds}
 
-    items_extra = {}
-    for ref in mb2.references.RefIds:
+def extract_item_types(i18n_index, get_text):
+    path = os.path.join(GAME_DATA, "data_assets_itemtypesdataroot.asset.bundle")
+    mb = read_mb(path, "ItemTypesDataRoot")
+    item_types = []
+    for ref in mb.references.RefIds:
         d = ref.data
-        if d is None or not hasattr(d, "id"):
+        item_types.append({
+            "id": d.id,
+            "name": get_text(i18n_index.get(d.nameId, 0)),
+        })
+    return item_types
+
+
+def extract_recipes(i18n_index, get_text):
+    path = os.path.join(GAME_DATA, "data_assets_recipesdataroot.asset.bundle")
+    mb = read_mb(path, "RecipesDataRoot")
+    recipes = []
+    for ref in mb.references.RefIds:
+        d = ref.data
+        name_id_raw = d.resultNameId
+        name_id = int(name_id_raw) if isinstance(name_id_raw, str) else name_id_raw
+        recipes.append({
+            "resultId": d.resultId,
+            "resultName": get_text(i18n_index.get(name_id, 0)),
+            "resultTypeId": d.resultTypeId,
+            "resultLevel": d.resultLevel,
+            "ingredientIds": list(d.ingredientIds),
+            "quantities": list(d.quantities),
+            "jobId": d.jobId,
+            "skillId": d.skillId,
+        })
+    return recipes
+
+
+def extract_items(i18n_index, get_text):
+    path = os.path.join(GAME_DATA, "data_assets_itemsdataroot.asset.bundle")
+    mb = read_mb(path, "ItemsDataRoot")
+    items = []
+    skipped = 0
+    total_refs = len(mb.references.RefIds)
+    log(f"    {total_refs} refs trouvés dans ItemsDataRoot")  # ← ajoute ça
+
+    for i, ref in enumerate(mb.references.RefIds):
+        if i % 500 == 0:
+            log(f"    ... traitement ref {i}/{total_refs}")  # ← progress log
+
+        try:
+            d = ref.data  # ← c'est souvent ici que ça bloque
+        except Exception as e:
+            log(f"    ERREUR ref {i}: {e}")  # ← affiche l'erreur réelle
+            skipped += 1
             continue
 
-        desc_id = getattr(d, "descriptionId", 0)
-        if isinstance(desc_id, str):
-            try:
-                desc_id = int(desc_id)
-            except Exception:
-                desc_id = 0
-        description = get_text(i18n_index.get(desc_id, 0)) if desc_id else ""
-
-        effects = []
-        for eff_ref in getattr(d, "possibleEffects", []):
-            rid = getattr(eff_ref, "rid", None)
-            if not rid or rid not in rid_map:
-                continue
-            ed = rid_map[rid].data
-            if ed is None:
-                continue
-
-            effect_id = getattr(ed, "effectId", 0)
-            base_effect_id = getattr(ed, "baseEffectId", effect_id)
-            dice_num = getattr(ed, "diceNum", 0)
-            dice_side = getattr(ed, "diceSide", 0)
-            value = getattr(ed, "value", 0)
-
-            eff_def = effect_defs.get(effect_id) or effect_defs.get(base_effect_id) or {}
-            description_tmpl = eff_def.get("description", "")
-            theo_tmpl = eff_def.get("theoreticalDescription", "")
-
-            v1 = dice_num if dice_num != 0 else value
-            v2 = dice_side
-            is_range = v2 > 0 and v1 != v2
-            tmpl = theo_tmpl or description_tmpl
-
-            def replace_conditional(m):
-                inner = m.group(1)
-                if '~1~2' in inner:
-                    text = re.sub(r'~\d*', '', inner).strip()
-                    return (' ' + text + ' ') if is_range else ''
-                return ''
-
-            formatted = re.sub(r'\{\{([^}]+)\}\}', replace_conditional, tmpl)
-            if is_range:
-                formatted = formatted.replace('#1', str(v1)).replace('#2', str(v2))
-            else:
-                formatted = formatted.replace('#2', '').replace('#1', str(v1))
-            formatted = re.sub(r'\s{2,}', ' ', formatted).strip()
-
-            effects.append({
-                "effectId": effect_id,
-                "baseEffectId": base_effect_id,
-                "diceNum": dice_num,
-                "diceSide": dice_side,
-                "value": value,
-                "description": formatted or description_tmpl,
-                "characteristic": eff_def.get("characteristic", 0),
-                "isInPercent": eff_def.get("isInPercent", False),
+        if d is None or not hasattr(d, "id"):
+            skipped += 1
+            continue
+        try:
+            items.append({
+                "id": d.id,
+                "name": get_text(i18n_index.get(d.nameId, 0)),
+                "typeId": d.typeId,
+                "level": d.level,
+                "iconId": d.iconId,
+                "price": float(d.price) if hasattr(d, "price") else 0,
+                "realWeight": d.realWeight if hasattr(d, "realWeight") else 0,
             })
+        except Exception as e:
+            log(f"    ERREUR item {i}: {e}")  # ← affiche l'erreur réelle
+            skipped += 1
 
-        if description or effects:
-            items_extra[d.id] = {"description": description, "effects": effects}
+    log(f"    {len(items)} items extraits, {skipped} skippés")
+    return items
 
-    return items_extra
+
+def extract_for_lang(i18n_index, get_text):
+    """Extract all game data for a given language (i18n already loaded)."""
+    log("  Extracting jobs...")
+    jobs = extract_jobs(i18n_index, get_text)
+    log(f"    {len(jobs)} jobs")
+
+    log("  Extracting item types...")
+    item_types = extract_item_types(i18n_index, get_text)
+    log(f"    {len(item_types)} item types")
+
+    log("  Extracting recipes...")
+    recipes = extract_recipes(i18n_index, get_text)
+    log(f"    {len(recipes)} recipes")
+
+    log("  Extracting items...")
+    items = extract_items(i18n_index, get_text)
+    log(f"    {len(items)} items")
+
+    return {"jobs": jobs, "item_types": item_types, "recipes": recipes, "items": items}
+
+
+ICON_SIZE = 80
+
+
+def extract_icons(items, recipes):
+    log("Extracting icons...")
+    icons_dir = os.path.join(OUT_DIR, "icons")
+    os.makedirs(icons_dir, exist_ok=True)
+
+    item_by_id = {i["id"]: i for i in items}
+    needed_icon_ids = set()
+    for item in items:
+        needed_icon_ids.add(item["iconId"])
+    for r in recipes:
+        for iid in r["ingredientIds"]:
+            item = item_by_id.get(iid)
+            if item:
+                needed_icon_ids.add(item["iconId"])
+
+    existing = {
+        int(f[:-4]) for f in os.listdir(icons_dir) if f.endswith(".png") and f[:-4].isdigit()
+    }
+    to_extract = needed_icon_ids - existing
+    log(f"  {len(needed_icon_ids)} needed, {len(existing)} cached, extracting {len(to_extract)}...")
+
+    if not to_extract:
+        log("  All icons already cached.")
+        return
+
+    env = UnityPy.load(ICON_BUNDLE)
+    extracted = 0
+    for obj in env.objects:
+        if obj.type.name != "Sprite":
+            continue
+        data = obj.read()
+        try:
+            icon_id = int(data.m_Name)
+        except ValueError:
+            continue
+        if icon_id not in to_extract:
+            continue
+        try:
+            img = data.image.convert("RGBA")
+            ratio = min(ICON_SIZE / img.width, ICON_SIZE / img.height)
+            new_w = max(1, int(img.width * ratio))
+            new_h = max(1, int(img.height * ratio))
+            thumb = img.resize((new_w, new_h), Image.LANCZOS)
+            canvas = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
+            canvas.paste(thumb, ((ICON_SIZE - new_w) // 2, (ICON_SIZE - new_h) // 2))
+            canvas.save(os.path.join(icons_dir, f"{icon_id}.png"))
+            extracted += 1
+        except Exception:
+            pass
+
+    log(f"  {extracted} icons extracted to data/icons/")
 
 
 def main():
-    i18n_index, get_text = build_i18n_index(get_i18n_path('fr'))
-    items_extra = extract_effects_for_lang(i18n_index, get_text)
+    os.makedirs(OUT_DIR, exist_ok=True)
 
-    with open(os.path.join(OUT_DIR, "items_extra.json"), "w", encoding="utf-8") as f:
-        json.dump(items_extra, f, ensure_ascii=False, indent=2)
-    log(f"  Wrote data/items_extra.json ({len(items_extra)} items)")
-    log("Done.")
+    i18n_index, get_text = build_i18n_index(get_i18n_path('fr'))
+    data = extract_for_lang(i18n_index, get_text)
+
+    for name, content in data.items():
+        with open(os.path.join(OUT_DIR, f"{name}.json"), "w", encoding="utf-8") as f:
+            json.dump(content, f, ensure_ascii=False, indent=2)
+        log(f"  Wrote data/{name}.json")
+
+    extract_icons(data["items"], data["recipes"])
+    log("Done!")
 
 
 if __name__ == "__main__":
